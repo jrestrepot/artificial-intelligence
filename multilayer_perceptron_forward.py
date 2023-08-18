@@ -3,7 +3,7 @@
 import subprocess
 
 # Install the requirements
-subprocess.run(["pip", "install", "-r", "requirements.txt"])
+# subprocess.run(["pip", "install", "-r", "requirements.txt"])
 from pprint import pprint
 from typing import Any, Callable, Type
 
@@ -163,6 +163,7 @@ class MultiLayerPerceptron:
                     self, y_s[i], weights[i], **self.activation_kwargs[i]
                 )
             )
+
         return y_s
 
     def derivative(self, activation_function: Type[Callable]):
@@ -190,6 +191,25 @@ class MultiLayerPerceptron:
             case _:
                 raise ValueError("The activation function is not valid.")
 
+    def compute_local_gradient(
+        self, weight: Tensor, y: Tensor, activation_function: Callable, kwargs: dict
+    ):
+        """Computes the local gradient
+
+        Parameters
+        ----------
+        weight: Tensor
+            The weight tensor.
+        y: Tensor
+            The output tensor.
+        activation_function: Callable
+            The activation function.
+        kwargs: dict
+            The activation function kwargs.
+        """
+
+        return self.derivative(activation_function)(y, weight, **kwargs)
+
     def learning_rule(
         self,
         error: Type[Tensor],
@@ -215,16 +235,23 @@ class MultiLayerPerceptron:
 
         if index_w == 0:
             return weights[index_w]
-        W = weights[index_w]
+        weight = weights[index_w]
+        y = y_s[index_y]
+        stimulli = y_s[index_y - 1]
         # Calculate the error
-        derivative: Tensor = self.derivative(self.activation_functions[index_w])(
-            y_s[index_y - 1], W, **self.activation_kwargs[index_w]
+        gradient: Tensor = self.compute_local_gradient(
+            weight,
+            stimulli,
+            self.activation_functions[index_w],
+            self.activation_kwargs[index_w],
         )
-        print(error.shape, derivative.shape, y_s[index_y - 1].shape)
-        loss_func_derivative: Tensor = -error * derivative.T * y_s[index_y - 1]
+        if len(self.activation_functions) == index_w - 1:
+            loss_func_derivative: Tensor = -(error * gradient).T * stimulli
+        else:
+            loss_func_derivative: Tensor = -(error * gradient).T * stimulli
         # Update the weights
-        self.gradients.append(loss_func_derivative.T)
-        W = W + loss_func_derivative.T
+        self.gradients.append(loss_func_derivative)
+        weight = weight + loss_func_derivative.T
         return self.learning_rule(
             loss_func_derivative.T, weights, y_s, index_w - 1, index_y - 1
         )
@@ -255,7 +282,6 @@ class MultiLayerPerceptron:
             y_s = self.forward(x_i, weights)
             # Learning rule
             error = yd_i - y_s[-1]
-            print(y_s)
             W_k = self.learning_rule(
                 error,
                 weights,
@@ -265,7 +291,7 @@ class MultiLayerPerceptron:
             )
             weights[-1] = W_k
             self.gradients.append(W_k)
-        return y_s[-1]
+        return y_s
 
 
 if __name__ == "__main__":
@@ -286,10 +312,10 @@ if __name__ == "__main__":
     # Test :)
     multilayer = MultiLayerPerceptron(
         2,
-        [3, 2, 3],
+        [2, 2],
         2,
-        ["tanh", "linear", "sigmoid", "tanh", "sigmoid"],
-        [{}, {"a": a, "b": b}, {}, {}, {}],
+        ["tanh", "linear", "sigmoid", "tanh"],
+        [{}, {"a": a, "b": b}, {}, {}],
     )
     # Print the output
     print("Output: ")
@@ -298,3 +324,4 @@ if __name__ == "__main__":
     # Print the gradients
     print("Gradients: ")
     pprint(multilayer.gradients)
+    print(len(multilayer.gradients))
