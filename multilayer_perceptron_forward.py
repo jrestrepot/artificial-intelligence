@@ -3,11 +3,12 @@
 import subprocess
 
 # Install the requirements
-# subprocess.run(["pip", "install", "-r", "requirements.txt"])
+subprocess.run(["pip", "install", "-r", "requirements.txt"])
 from pprint import pprint
 from typing import Any, Callable, Type
 
 import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
@@ -38,12 +39,15 @@ class MultiLayerPerceptron:
         output_size: int,
         activation_functions: list[str],
         activation_kwargs: list[dict[str, float]],
+        eta: float = 1,
     ):
         self.input_size: int = input_size
         self.hidden_layers: list[int] = hidden_layers
         self.output_size: int = output_size
         self.activation_kwargs: list[dict[Any]] = activation_kwargs
-        self.gradients: list[Tensor] = []
+        self.gradients: list[Tensor] | None = None
+        self.weights: list[Tensor] = []
+        self.eta = eta
         self._init_activation_functions_(activation_functions)
         self.check_input()
 
@@ -59,6 +63,23 @@ class MultiLayerPerceptron:
         self.activation_functions: list[Callable] = []
         for activation_function in activation_functions:
             self.activation_functions.append(getattr(type(self), activation_function))
+
+    def _init_gradients_(self, n_epochs: int, n_points: int):
+        """It initializes the gradients.
+
+        Parameters
+        ----------
+        n_epochs: int
+            The number of epochs.
+        n_points: int
+            The number of points.
+        """
+
+        self.gradients = []
+        self.gradients.append(torch.zeros((n_epochs, n_points, self.input_size)))
+        for hidden_layer in self.hidden_layers:
+            self.gradients.append(torch.zeros((n_epochs, n_points, hidden_layer)))
+        self.gradients.append(torch.zeros((n_epochs, n_points, self.output_size)))
 
     def check_input(self):
         """
@@ -97,8 +118,7 @@ class MultiLayerPerceptron:
         """
 
         # Check the dimensions of the tensors
-        # assert a.shape == (self.output_size, 1) and b.shape == (self.output_size, 1)
-        return a * x.mm(W) + b
+        return a * W.mm(x) + b
 
     def sigmoid(self, x: Type[Tensor], W: Type[Tensor]):
         """
@@ -113,7 +133,7 @@ class MultiLayerPerceptron:
         """
 
         # Check the dimensions of the tensors
-        x = x.mm(W)
+        x = W.mm(x)
         return 1 / (1 + torch.exp(-x))
 
     def tanh(self, x: Type[Tensor], W: Type[Tensor]):
@@ -129,14 +149,10 @@ class MultiLayerPerceptron:
         """
 
         # Check the dimensions of the tensors
-        x = x.mm(W)
+        x = W.mm(x)
         return (torch.exp(x) - torch.exp(-x)) / (torch.exp(x) + torch.exp(-x))
 
-    def forward(
-        self,
-        x: Type[Tensor],
-        weights: list[Type[Tensor]],
-    ):
+    def forward(self, x: Type[Tensor]):
         """
         The feedforward function of the perceptron. It uses the tanh function
         for the input layer, the sigmoid function for the hidden layer and the
@@ -147,8 +163,6 @@ class MultiLayerPerceptron:
         x: Type[Tensor]
             The input tensor.
             The intercept tensor.
-        weights: list[Type[Tensor]]
-            The list of weight tensors.
 
         Returns
         -------
@@ -160,10 +174,9 @@ class MultiLayerPerceptron:
         for i, activation_function in enumerate(self.activation_functions):
             y_s.append(
                 activation_function(
-                    self, y_s[i], weights[i], **self.activation_kwargs[i]
+                    self, y_s[i], self.weights[i], **self.activation_kwargs[i]
                 )
             )
-
         return y_s
 
     def derivative(self, activation_function: Type[Callable]):
@@ -183,81 +196,57 @@ class MultiLayerPerceptron:
 
         match activation_function.__name__:
             case self.sigmoid.__name__:
-                return lambda x, W: torch.exp(-x.mm(W)) / (torch.exp(x.mm(W)) + 1) ** 2
+                return lambda x, W: torch.exp(-W.mm(x)) / (torch.exp(W.mm(x)) + 1) ** 2
             case self.tanh.__name__:
-                return lambda x, W: 4 / (torch.exp(-x.mm(W)) + torch.exp(x.mm(W))) ** 2
+                return lambda x, W: 4 / (torch.exp(-W.mm(x)) + torch.exp(W.mm(x))) ** 2
             case self.linear.__name__:
                 return lambda x, W, a, b: a
             case _:
                 raise ValueError("The activation function is not valid.")
 
-    def compute_local_gradient(
-        self, weight: Tensor, y: Tensor, activation_function: Callable, kwargs: dict
-    ):
-        """Computes the local gradient
-
-        Parameters
-        ----------
-        weight: Tensor
-            The weight tensor.
-        y: Tensor
-            The output tensor.
-        activation_function: Callable
-            The activation function.
-        kwargs: dict
-            The activation function kwargs.
-        """
-
-        return self.derivative(activation_function)(y, weight, **kwargs)
-
-    def learning_rule(
-        self,
-        error: Type[Tensor],
-        weights: Type[Tensor],
-        y_s: Type[Tensor],
-        index_w: int,
-        index_y: int,
+    def backpropagation(
+        self, error: Type[Tensor], y_s: Type[Tensor], point: int, epoch: int
     ):
         """
-        The learning rule of the perceptron.
+        The backpropagation.
 
         Parameters
         ----------
         error: Type[Tensor]
             The error tensor.
-        weights: list[Type[Tensor]]
-            The weight tensor.
         y_s: list[Type[Tensor]]
-            The list of output tensors for each layer.
-        index: int
-            The index of the layer.
+            The list of output tensors for each layer (stimuli).
+        point: int
+            The point index. This is used to store the gradient.
+        epoch: int
+            The epoch index. This is used to store the gradient.
         """
 
-        if index_w == 0:
-            return weights[index_w]
-        weight = weights[index_w]
-        y = y_s[index_y]
-        stimulli = y_s[index_y - 1]
-        # Calculate the error
-        gradient: Tensor = self.compute_local_gradient(
-            weight,
-            stimulli,
-            self.activation_functions[index_w],
-            self.activation_kwargs[index_w],
-        )
-        if len(self.activation_functions) == index_w - 1:
-            loss_func_derivative: Tensor = -(error * gradient).T * stimulli
-        else:
-            loss_func_derivative: Tensor = -(error * gradient).T * stimulli
-        # Update the weights
-        self.gradients.append(loss_func_derivative)
-        weight = weight + loss_func_derivative.T
-        return self.learning_rule(
-            loss_func_derivative.T, weights, y_s, index_w - 1, index_y - 1
-        )
+        # Compute for the output layer
+        current_index = len(self.activation_functions) - 1
+        stimuli = y_s[current_index]
+        weight = self.weights[current_index]
+        local_gradient = -error * self.derivative(
+            self.activation_functions[current_index]
+        )(stimuli, weight, **self.activation_kwargs[current_index])
+        self.gradients[current_index][epoch, point, :] = local_gradient.T
+        self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
 
-    def feed_points(self, x: Type[Tensor], y_d: Type[Tensor]):
-        """It calls the forward and learning rule functions for each point in the dataset.
+        current_index -= 1
+        while current_index > 0:
+            past_local_gradient = local_gradient
+            past_weight = weight
+            stimuli = y_s[current_index]
+            weight = self.weights[current_index]
+            local_gradient = self.derivative(self.activation_functions[current_index])(
+                stimuli, weight, **self.activation_kwargs[current_index]
+            ) * past_weight.T.mm(past_local_gradient)
+            self.gradients[current_index][epoch, point, :] = local_gradient.T
+            self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
+            current_index -= 1
+
+    def train(self, x: Type[Tensor], y_d: Type[Tensor], epochs: int = 5):
+        """It trains the perceptron.
 
         Parameters
         ----------
@@ -265,63 +254,126 @@ class MultiLayerPerceptron:
             The input tensor.
         y_d: Type[Tensor]
             The desired output tensor.
+        epochs: int
+            The number of epochs.
         """
 
-        assert x.shape[1] == self.input_size
-        # Create random weight tensors
-        weights = []
-        weights.append(torch.rand(self.input_size, self.input_size))
+        n_columns = x.shape[1]
+        n_points = x.shape[0]
+        y_d_n_columns = y_d.shape[1]
+        assert n_columns == self.input_size
+        assert y_d_n_columns == self.output_size
+
+        # Initialize the gradients
+        if self.gradients is None:
+            self._init_gradients_(epochs, n_points)
+
+        # Initialize the weights
+        self.weights.append(torch.rand(self.input_size, self.input_size))
         for hidden_size in self.hidden_layers:
-            weights.append(torch.rand(weights[-1].shape[1], hidden_size))
-        weights.append(torch.rand(hidden_size, self.output_size))
-        W_k = weights[-1]
-        for i in range(x.shape[0]):
-            x_i = x[i, :][None, :]
-            yd_i = y_d[i, :][None, :]
+            self.weights.append(torch.rand(hidden_size, self.weights[-1].shape[1]))
+        self.weights.append(torch.rand(self.output_size, hidden_size))
+
+        # Train the perceptron
+        for epoch in range(epochs):
+            for i in range(n_points):
+                x_i = x[i, :][None, :].T
+                yd_i = y_d[i, :][None, :].T
+                # Forward
+                y_s = self.forward(x_i)
+                if i == n_points - 1:
+                    index = 0
+                else:
+                    index = i + 1
+                y_s[0] = x[index, :][None, :].T
+                # Backward
+                error = (yd_i - y_s[-1]).sum()
+                self.backpropagation(error, y_s, i, epoch)
+
+        # Return the trained perceptron
+        return self
+
+    def predict(self, x: Type[Tensor]):
+        """It predicts the output given the input.
+
+        Parameters
+        ----------
+        x: Type[Tensor]
+            The input tensor.
+
+        Returns
+        -------
+        y: Type[Tensor]
+            The output tensor.
+        """
+
+        n_columns = x.shape[1]
+        n_points = x.shape[0]
+        assert n_columns == self.input_size
+        predictions = []
+        for i in range(n_points):
+            x_i = x[i, :][None, :].T
             # Forward
-            y_s = self.forward(x_i, weights)
-            # Learning rule
-            error = yd_i - y_s[-1]
-            W_k = self.learning_rule(
-                error,
-                weights,
-                y_s,
-                len(weights) - 1,
-                len(y_s) - 1,
-            )
-            weights[-1] = W_k
-            self.gradients.append(W_k)
-        return y_s
+            y_s = self.forward(x_i)
+            predictions.append(y_s[-1])
+        return predictions
+
+
+def format_input(data: pd.DataFrame | np.ndarray, transpose: bool = False) -> Tensor:
+    """It formats the input data.
+
+    Parameters
+    ----------
+    data: pd.DataFrame | np.ndarray
+        The data.
+
+    Returns
+    -------
+    x: Tensor
+        The input tensor.
+    transpose: bool
+        Whether to transpose the input data.
+    """
+
+    if isinstance(data, pd.DataFrame):
+        data = data.to_numpy()
+    if transpose:
+        data = data.T
+    x = torch.tensor(data, dtype=torch.float32)
+    return x
 
 
 if __name__ == "__main__":
     # Set the seed for reproducibility
     torch.manual_seed(0)
-    x = np.empty((2, 4))
+
     # Create the input tensor (based on the XOR example seen in class)
+    x = np.empty((2, 4))
     x[0, :] = [0, 0, 1, 1]
     x[1, :] = [0, 1, 0, 1]
-    y_d = np.empty((2, 4))
+    y_d = np.empty((1, 4))
     y_d[0, :] = [0, 1, 1, 0]
-    y_d[1, :] = [0, 1, 1, 0]
-    y_d = torch.tensor(y_d, dtype=torch.float32).T
-    x = torch.tensor(x, dtype=torch.float32).T
+    y_d = format_input(y_d, transpose=True)
+    x = format_input(x, transpose=True)
+
     # Create random intercepts and slopes for the lineal function
     a = torch.rand(1, 1)
     b = torch.rand(1, 1)
+
     # Test :)
     multilayer = MultiLayerPerceptron(
         2,
-        [2, 2],
-        2,
-        ["tanh", "linear", "sigmoid", "tanh"],
+        [2, 3],
+        1,
+        ["tanh", "linear", "sigmoid", "sigmoid"],
         [{}, {"a": a, "b": b}, {}, {}],
     )
     # Print the output
     print("Output: ")
-    pprint(multilayer.feed_points(x, y_d))
+    pprint(multilayer.train(x, y_d).predict(x))
     print(" ")
     # Print the gradients
     print("Gradients: ")
-    pprint(multilayer.gradients)
-    print(len(multilayer.gradients))
+    for i, layer in enumerate(multilayer.gradients):
+        print("Layer", i + 1)
+        print(layer)
