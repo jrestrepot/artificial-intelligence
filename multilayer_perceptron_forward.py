@@ -9,6 +9,7 @@ from typing import Any, Callable, Type
 
 import numpy as np
 import pandas as pd
+import scipy.io as sio
 import torch
 from torch import Tensor
 
@@ -231,6 +232,8 @@ class MultiLayerPerceptron:
         )(stimuli, weight, **self.activation_kwargs[current_index])
         self.gradients[current_index][epoch, point, :] = local_gradient.T
         self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
+        # if torch.isnan(self.weights[current_index]).any():
+        #     print("At least one weight is NaN.")
 
         # Compute for the rest of the layers
         current_index -= 1
@@ -243,7 +246,10 @@ class MultiLayerPerceptron:
                 stimuli, weight, **self.activation_kwargs[current_index]
             ) * past_weight.T.mm(past_local_gradient)
             self.gradients[current_index][epoch, point, :] = local_gradient.T
+
             self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
+            # if torch.isnan(self.weights[current_index]).any():
+            #     print("At least one weight is NaN.")
             current_index -= 1
 
     def train(self, x: Type[Tensor], y_d: Type[Tensor], epochs: int = 5):
@@ -272,7 +278,7 @@ class MultiLayerPerceptron:
         # Initialize the weights
         self.weights.append(torch.rand(self.input_size, self.input_size))
         for hidden_size in self.hidden_layers:
-            self.weights.append(torch.rand(hidden_size, self.weights[-1].shape[1]))
+            self.weights.append(torch.rand(hidden_size, self.weights[-1].shape[0]))
         self.weights.append(torch.rand(self.output_size, hidden_size))
 
         # Train the perceptron
@@ -337,11 +343,56 @@ def format_input(data: pd.DataFrame | np.ndarray, transpose: bool = False) -> Te
     """
 
     if isinstance(data, pd.DataFrame):
-        data = data.to_numpy()
+        data = torch.tensor(data.values, dtype=torch.float32)
+    if isinstance(data, pd.Series):
+        data = torch.tensor(data.values, dtype=torch.float32)
+        data = data.resize(data.shape[0], 1)
+    if isinstance(data, np.ndarray):
+        data = torch.tensor(data, dtype=torch.float32)
     if transpose:
         data = data.T
-    x = torch.tensor(data, dtype=torch.float32)
-    return x
+    return data
+
+
+def read_mat_file(file_path: str) -> pd.DataFrame:
+    """It reads a mat file and returns a DataFrame.
+
+    Parameters
+    ----------
+    file_path: str
+        The file path.
+
+    Returns
+    -------
+    data: pd.DataFrame
+        The data.
+    """
+
+    mat = sio.loadmat(file_path)
+    data = pd.DataFrame()
+    for i in list(mat.keys() - ["__header__", "__version__", "__globals__"]):
+        data[i] = mat[i].reshape(-1)
+    return data
+
+
+def read_txt(data_path: str, sep: str = ",") -> pd.DataFrame:
+    """It reads a txt file and returns a DataFrame.
+
+    Parameters
+    ----------
+    data_path: str
+        The file path.
+    sep: str
+        The separator.
+
+    Returns
+    -------
+    data: pd.DataFrame
+        The data.
+    """
+
+    data = pd.read_csv(data_path, sep=sep, header=None)
+    return data
 
 
 if __name__ == "__main__":
@@ -349,13 +400,11 @@ if __name__ == "__main__":
     torch.manual_seed(0)
 
     # Create the input tensor (based on the XOR example seen in class)
-    x = np.empty((2, 4))
-    x[0, :] = [0, 0, 1, 1]
-    x[1, :] = [0, 1, 0, 1]
-    y_d = np.empty((1, 4))
-    y_d[0, :] = [0, 1, 1, 0]
-    y_d = format_input(y_d, transpose=True)
-    x = format_input(x, transpose=True)
+    data = read_txt("DATOS.txt")
+    y_d = data.iloc[:, -1]
+    x = data.iloc[:, :-1]
+    y_d = format_input(y_d)
+    x = format_input(x)
 
     # Create random intercepts and slopes for the lineal function
     a = torch.rand(1, 1)
@@ -368,11 +417,14 @@ if __name__ == "__main__":
         1,
         ["tanh", "linear", "sigmoid", "sigmoid"],
         [{}, {"a": a, "b": b}, {}, {}],
+        eta=1,
     )
     # Print the output
+
     print("Output: ")
-    pprint(multilayer.train(x, y_d).predict(x))
+    multilayer.train(x, y_d)
     print(" ")
+
     # Print the gradients
     print("Gradients: ")
     for i, layer in enumerate(multilayer.gradients):
