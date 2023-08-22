@@ -232,8 +232,9 @@ class MultiLayerPerceptron:
         self.gradients[current_index][epoch, point, :] = local_gradient.T
         self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
 
+        # Compute for the rest of the layers
         current_index -= 1
-        while current_index > 0:
+        while current_index >= 0:
             past_local_gradient = local_gradient
             past_weight = weight
             stimuli = y_s[current_index]
