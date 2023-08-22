@@ -9,8 +9,10 @@ from typing import Any, Callable, Type
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import scipy.io as sio
 import torch
+from plotly.subplots import make_subplots
 from torch import Tensor
 
 
@@ -301,7 +303,8 @@ class MultiLayerPerceptron:
         return self
 
     def predict(self, x: Type[Tensor]):
-        """It predicts the output given the input.
+        """It predicts the output given the input. It assumes that the model is
+        already trained.
 
         Parameters
         ----------
@@ -314,6 +317,9 @@ class MultiLayerPerceptron:
             The output tensor.
         """
 
+        if self.gradients is None:
+            raise ValueError("The model is not trained, thus it cannot predict.")
+
         n_columns = x.shape[1]
         n_points = x.shape[0]
         assert n_columns == self.input_size
@@ -324,6 +330,33 @@ class MultiLayerPerceptron:
             y_s = self.forward(x_i)
             predictions.append(y_s[-1])
         return predictions
+
+    def plot_gradients(self):
+        """
+        It plots the gradients for each layer.
+        """
+
+        assert self.gradients is not None
+
+        for i, layer in enumerate(self.gradients):
+            fig = go.Figure()
+            # Reshape the layer so that it is easier to plot
+            reshaped_layer = layer.reshape(layer.shape[0] * layer.shape[1], -1)
+            for j in range(reshaped_layer.shape[1]):
+                fig.add_trace(
+                    go.Scatter(
+                        x=np.arange(reshaped_layer.shape[0]),
+                        y=reshaped_layer[:, j],
+                        mode="lines",
+                        name=f"Gradient {j + 1}",
+                    )
+                )
+            fig.update_layout(
+                title=f"Gradients for layer {i + 1}",
+                xaxis_title="Interations",
+                yaxis_title="Gradient",
+            )
+            fig.show()
 
 
 def format_input(data: pd.DataFrame | np.ndarray, transpose: bool = False) -> Tensor:
@@ -419,14 +452,14 @@ if __name__ == "__main__":
         [{}, {"a": a, "b": b}, {}, {}],
         eta=1,
     )
-    # Print the output
 
-    print("Output: ")
+    # Train the perceptron
     multilayer.train(x, y_d)
-    print(" ")
 
     # Print the gradients
     print("Gradients: ")
     for i, layer in enumerate(multilayer.gradients):
         print("Layer", i + 1)
-        print(layer)
+        pprint(layer)
+
+    multilayer.plot_gradients()
