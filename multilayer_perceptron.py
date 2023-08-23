@@ -12,7 +12,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import torch
 from torch import Tensor
-from utils import format_input, read_mat_file, read_txt
 
 
 class MultiLayerPerceptron:
@@ -120,6 +119,9 @@ class MultiLayerPerceptron:
         """
 
         # Check the dimensions of the tensors
+        assert a.shape == b.shape
+        assert a.shape[0] == W.shape[0]
+
         return a * W.mm(x) + b
 
     def sigmoid(self, x: Type[Tensor], W: Type[Tensor]):
@@ -198,7 +200,7 @@ class MultiLayerPerceptron:
 
         match activation_function.__name__:
             case self.sigmoid.__name__:
-                return lambda x, W: torch.exp(-W.mm(x)) / (torch.exp(W.mm(x)) + 1) ** 2
+                return lambda x, W: torch.exp(-W.mm(x)) / (torch.exp(-W.mm(x)) + 1) ** 2
             case self.tanh.__name__:
                 return lambda x, W: 4 / (torch.exp(-W.mm(x)) + torch.exp(W.mm(x))) ** 2
             case self.linear.__name__:

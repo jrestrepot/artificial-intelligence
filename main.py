@@ -18,21 +18,20 @@ if __name__ == "__main__":
     x = format_input(x)
 
     # Create random intercepts and slopes for the lineal function
-    a = torch.rand(1, 1)
-    b = torch.rand(1, 1)
-
+    a1 = torch.rand(2, 1)
+    b1 = torch.rand(2, 1)
     # Test :)
     multilayer = MultiLayerPerceptron(
         2,
         [2, 5, 3],
         1,
-        ["tanh", "linear", "tanh", "sigmoid", "sigmoid"],
-        [{}, {"a": a, "b": b}, {}, {}, {}],
+        ["tanh", "linear", "tanh", "sigmoid", "tanh"],
+        [{}, {"a": a1, "b": b1}, {}, {}, {}],
         eta=1,
     )
 
     # Train the perceptron
-    multilayer.train(x, y_d, epochs=1)
+    multilayer.train(x, y_d, epochs=5)
 
     # Print the gradients
     print("Gradients: ")
