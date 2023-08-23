@@ -433,7 +433,7 @@ if __name__ == "__main__":
     torch.manual_seed(0)
 
     # Create the input tensor (based on the XOR example seen in class)
-    data = read_txt("DATOS.txt")
+    data = read_txt("data/DATOS.txt")
     y_d = data.iloc[:, -1]
     x = data.iloc[:, :-1]
     y_d = format_input(y_d)
