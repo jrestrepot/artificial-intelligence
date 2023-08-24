@@ -74,3 +74,23 @@ def read_txt(data_path: str, sep: str = ",") -> pd.DataFrame:
 
     data = pd.read_csv(data_path, sep=sep, header=None)
     return data
+
+
+def normalize_to_hypercube(data: pd.DataFrame):
+    """It normalizes the data to the hypercube [0, 1].
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        The data.
+
+    Returns
+    -------
+    normalized_data: pd.DataFrame
+        The normalized data.
+    """
+
+    # Normalize each column
+    normalized_data = (data - data.min(axis=0)) / (data.max(axis=0) - data.min(axis=0))
+
+    return normalized_data

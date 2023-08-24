@@ -332,9 +332,15 @@ class MultiLayerPerceptron:
             predictions.append(y_s[-1])
         return predictions
 
-    def plot_gradients(self):
+    def plot_gradients(self, example: str):
         """
         It plots the gradients for each layer.
+
+        Parameters:
+        -----------
+
+        example: str
+            The name of the example
         """
 
         assert self.gradients is not None
@@ -353,8 +359,10 @@ class MultiLayerPerceptron:
                     )
                 )
             fig.update_layout(
-                title=f"Gradients for layer {i + 1}",
+                title=f"Gradients for layer {i + 1}, example {example}",
                 xaxis_title="Interations",
                 yaxis_title="Gradient",
             )
-            fig.show()
+
+            # Save figure into a html
+            fig.write_html(f"figures/fig_layer_{i+1}_({example}).html")
