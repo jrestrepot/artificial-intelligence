@@ -3,7 +3,7 @@
 import subprocess
 
 # Install the requirements
-subprocess.run(["pip", "install", "-r", "requirements.txt"])
+# subprocess.run(["pip", "install", "-r", "requirements.txt"])
 from pprint import pprint
 from typing import Any, Callable, Type
 
@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import torch
-from torch import Tensor
+from torch import Tensor, tensor
 
 
 class MultiLayerPerceptron:
@@ -49,6 +49,7 @@ class MultiLayerPerceptron:
         self.gradients: list[Tensor] | None = None
         self.weights: list[Tensor] = []
         self.eta = eta
+        self.derivatives = []
         self._init_activation_functions_(activation_functions)
         self.check_input()
 
@@ -138,7 +139,7 @@ class MultiLayerPerceptron:
 
         # Check the dimensions of the tensors
         x = W.mm(x)
-        return 1 / (1 + torch.exp(-x))
+        return torch.sigmoid(x)
 
     def tanh(self, x: Type[Tensor], W: Type[Tensor]):
         """
@@ -154,7 +155,8 @@ class MultiLayerPerceptron:
 
         # Check the dimensions of the tensors
         x = W.mm(x)
-        return (torch.exp(x) - torch.exp(-x)) / (torch.exp(x) + torch.exp(-x))
+
+        return torch.tanh(x)
 
     def forward(self, x: Type[Tensor]):
         """
@@ -175,10 +177,17 @@ class MultiLayerPerceptron:
         """
 
         y_s = [x]
+        self.derivatives = []
+
         for i, activation_function in enumerate(self.activation_functions):
             y_s.append(
                 activation_function(
                     self, y_s[i], self.weights[i], **self.activation_kwargs[i]
+                )
+            )
+            self.derivatives.append(
+                self.derivative(activation_function)(
+                    y_s[i], self.weights[i], **self.activation_kwargs[i]
                 )
             )
         return y_s
@@ -200,9 +209,11 @@ class MultiLayerPerceptron:
 
         match activation_function.__name__:
             case self.sigmoid.__name__:
-                return lambda x, W: torch.exp(-W.mm(x)) / (torch.exp(-W.mm(x)) + 1) ** 2
+                return lambda x, W: activation_function(self, x, W) * (
+                    1 - activation_function(self, x, W)
+                )
             case self.tanh.__name__:
-                return lambda x, W: 4 / (torch.exp(-W.mm(x)) + torch.exp(W.mm(x))) ** 2
+                return lambda x, W: 1 - activation_function(self, x, W) ** 2
             case self.linear.__name__:
                 return lambda x, W, a, b: a
             case _:
@@ -230,14 +241,9 @@ class MultiLayerPerceptron:
         current_index = len(self.activation_functions) - 1
         stimuli = y_s[current_index]
         weight = self.weights[current_index]
-        local_gradient = -error * self.derivative(
-            self.activation_functions[current_index]
-        )(stimuli, weight, **self.activation_kwargs[current_index])
+        local_gradient = error * self.derivatives[current_index]
         self.gradients[current_index][epoch, point, :] = local_gradient.T
         self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
-        # if torch.isnan(self.weights[current_index]).any():
-        #     print("At least one weight is NaN.")
-
         # Compute for the rest of the layers
         current_index -= 1
         while current_index >= 0:
@@ -245,14 +251,12 @@ class MultiLayerPerceptron:
             past_weight = weight
             stimuli = y_s[current_index]
             weight = self.weights[current_index]
-            local_gradient = self.derivative(self.activation_functions[current_index])(
-                stimuli, weight, **self.activation_kwargs[current_index]
-            ) * past_weight.T.mm(past_local_gradient)
+            local_gradient = self.derivatives[current_index] * past_weight.T.mm(
+                past_local_gradient
+            )
             self.gradients[current_index][epoch, point, :] = local_gradient.T
 
             self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
-            # if torch.isnan(self.weights[current_index]).any():
-            #     print("At least one weight is NaN.")
             current_index -= 1
 
     def train(self, x: Type[Tensor], y_d: Type[Tensor], epochs: int = 5):
@@ -274,6 +278,8 @@ class MultiLayerPerceptron:
         assert n_columns == self.input_size
         assert y_d_n_columns == self.output_size
 
+        print("Training the perceptron...")
+
         # Initialize the gradients
         if self.gradients is None:
             self._init_gradients_(epochs, n_points)
@@ -291,11 +297,6 @@ class MultiLayerPerceptron:
                 yd_i = y_d[i, :][None, :].T
                 # Forward
                 y_s = self.forward(x_i)
-                if i == n_points - 1:
-                    index = 0
-                else:
-                    index = i + 1
-                y_s[0] = x[index, :][None, :].T
                 # Backward
                 error = (yd_i - y_s[-1]).sum()
                 self.backpropagation(error, y_s, i, epoch)
@@ -320,6 +321,8 @@ class MultiLayerPerceptron:
 
         if self.gradients is None:
             raise ValueError("The model is not trained, thus it cannot predict.")
+
+        print("Predicting...")
 
         n_columns = x.shape[1]
         n_points = x.shape[0]
@@ -366,3 +369,43 @@ class MultiLayerPerceptron:
 
             # Save figure into a html
             fig.write_html(f"figures/fig_layer_{i+1}_({example}).html")
+
+    def plot_predictions(self, predictions: Tensor, real: Tensor, example: str) -> None:
+        """
+        It plots the predictions vs the real values.
+
+        Parameters:
+        -----------
+        predictions: Tensor
+            The predictions
+        real: Tensor
+            The real values
+        example: str
+            The name of the example
+        """
+
+        predictions = tensor(predictions)
+        real = real.reshape(predictions.shape)
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=np.arange(len(real)),
+                y=predictions,
+                mode="lines",
+                name="Predictions",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=np.arange(len(real)),
+                y=real,
+                mode="lines",
+                name="Real",
+            )
+        )
+        fig.update_layout(
+            title=f"Real vs Predicted",
+        )
+
+        # Save figure into a html
+        fig.write_html(f"figures/output_({example}).html")
