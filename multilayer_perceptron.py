@@ -8,7 +8,6 @@ from pprint import pprint
 from typing import Any, Callable, Type
 
 import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 import torch
 from torch import Tensor, tensor
@@ -30,7 +29,9 @@ class MultiLayerPerceptron:
     activation_kwargs: list[dict[str, float]]
         The activation functions kwargs.
     gradients: list[Tensor]
-        The gradients of the weights.
+        The gradients of the weights.+
+    energies: list[float]
+        The energies of the errors.
     """
 
     def __init__(
@@ -47,7 +48,8 @@ class MultiLayerPerceptron:
         self.output_size: int = output_size
         self.activation_kwargs: list[dict[Any]] = activation_kwargs
         self.gradients: list[Tensor] | None = None
-        self.weights: list[Tensor] = []
+        self.energies: list[float] = []
+        self.weights: list[Tensor] | None = None
         self.eta = eta
         self.derivatives = []
         self._init_activation_functions_(activation_functions)
@@ -82,6 +84,15 @@ class MultiLayerPerceptron:
         for hidden_layer in self.hidden_layers:
             self.gradients.append(torch.zeros((n_epochs, n_points, hidden_layer)))
         self.gradients.append(torch.zeros((n_epochs, n_points, self.output_size)))
+
+    def _init_weights_(self):
+        """It initializes the weights."""
+
+        self.weights = []
+        self.weights.append(torch.rand(self.input_size, self.input_size))
+        for hidden_size in self.hidden_layers:
+            self.weights.append(torch.rand(hidden_size, self.weights[-1].shape[0]))
+        self.weights.append(torch.rand(self.output_size, hidden_size))
 
     def check_input(self):
         """
@@ -219,6 +230,18 @@ class MultiLayerPerceptron:
             case _:
                 raise ValueError("The activation function is not valid.")
 
+    def energy(self, error: Type[Tensor]):
+        """
+        The energy function.
+
+        Parameters
+        ----------
+        error: Type[Tensor]
+            The error tensor.
+        """
+
+        return 0.5 * (torch.square(error)).sum()
+
     def backpropagation(
         self, error: Type[Tensor], y_s: Type[Tensor], point: int, epoch: int
     ):
@@ -259,7 +282,13 @@ class MultiLayerPerceptron:
             self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
             current_index -= 1
 
-    def train(self, x: Type[Tensor], y_d: Type[Tensor], epochs: int = 5):
+    def sequential_train(
+        self,
+        x: Type[Tensor],
+        y_d: Type[Tensor],
+        max_epochs: int = 50,
+        tolerance: float = 1e-3,
+    ):
         """It trains the perceptron.
 
         Parameters
@@ -268,13 +297,17 @@ class MultiLayerPerceptron:
             The input tensor.
         y_d: Type[Tensor]
             The desired output tensor.
-        epochs: int
-            The number of epochs.
+        max_epochs: int
+            The max number of epochs.
+        tolerance: float
+            The tolerance for the change in the error.
         """
 
         n_columns = x.shape[1]
         n_points = x.shape[0]
         y_d_n_columns = y_d.shape[1]
+
+        # Check dimensions
         assert n_columns == self.input_size
         assert y_d_n_columns == self.output_size
 
@@ -282,16 +315,17 @@ class MultiLayerPerceptron:
 
         # Initialize the gradients
         if self.gradients is None:
-            self._init_gradients_(epochs, n_points)
+            self._init_gradients_(max_epochs, n_points)
 
         # Initialize the weights
-        self.weights.append(torch.rand(self.input_size, self.input_size))
-        for hidden_size in self.hidden_layers:
-            self.weights.append(torch.rand(hidden_size, self.weights[-1].shape[0]))
-        self.weights.append(torch.rand(self.output_size, hidden_size))
+        if self.weights is None:
+            self._init_weights_()
 
         # Train the perceptron
-        for epoch in range(epochs):
+        epoch = 0
+        # past_mean_energy = np.inf
+        while epoch < max_epochs:
+            energies = []
             for i in range(n_points):
                 x_i = x[i, :][None, :].T
                 yd_i = y_d[i, :][None, :].T
@@ -299,7 +333,98 @@ class MultiLayerPerceptron:
                 y_s = self.forward(x_i)
                 # Backward
                 error = (yd_i - y_s[-1]).sum()
+                energies.append(self.energy(error))
                 self.backpropagation(error, y_s, i, epoch)
+            # Stop iterating if the error is not changing
+            mean_energy = np.mean(energies)
+            self.energies.append(mean_energy)
+            if mean_energy < tolerance:
+                print("The error tolerance has been reached. Stopping the training...")
+                self.gradients = [
+                    self.gradients[i][: epoch + 1, :, :]
+                    for i in range(len(self.gradients))
+                ]
+                break
+            epoch += 1
+
+        # Return the trained perceptron
+        return self
+
+    def batch_train(
+        self,
+        x: Type[Tensor],
+        y_d: Type[Tensor],
+        max_epochs: int = 1000,
+        tolerance: float = 1e-3,
+    ):
+        """It trains the perceptron in batch mode.
+
+        Parameters
+        ----------
+        x: Type[Tensor]
+            The input tensor.
+        y_d: Type[Tensor]
+            The desired output tensor.
+        max_epochs: int
+            The max number of epochs.
+        tolerance: float
+            The tolerance for the change in the error.
+        """
+
+        n_columns = x.shape[1]
+        n_points = x.shape[0]
+        y_d_n_columns = y_d.shape[1]
+
+        # Check dimensions
+        assert n_columns == self.input_size
+        assert y_d_n_columns == self.output_size
+
+        print("Training the perceptron...")
+
+        # Initialize the gradients
+        if self.gradients is None:
+            self._init_gradients_(max_epochs, n_points)
+
+        # Initialize the weights
+        if self.weights is None:
+            self._init_weights_()
+
+        # Train the perceptron
+        epoch = 0
+        while epoch < max_epochs:
+            energies = np.zeros((n_points, 1))
+            errors = np.zeros((n_points, 1))
+            stimuli = [None] * n_points
+
+            for i in range(n_points):
+                x_i = x[i, :][None, :].T
+                yd_i = y_d[i, :][None, :].T
+                # Forward
+                y_s = self.forward(x_i)
+                stimuli[i] = y_s
+                error = (yd_i - y_s[-1]).sum()
+                errors[i] = error
+                energies[i] = self.energy(error)
+
+            max_error_index = np.argmax(errors)
+            if not isinstance(max_error_index, np.int64):
+                max_error_index = max_error_index[0]
+            # Get stimuli for the max error
+            stimuli_max_error = stimuli[max_error_index]
+            mean_energy = np.mean(energies)
+            mean_error = np.mean(errors)
+            self.energies.append(mean_energy)
+            # Backward
+            self.backpropagation(mean_error, stimuli_max_error, i, epoch)
+            # Stop iterating if the error is not changing
+            if mean_energy < tolerance:
+                print("The error tolerance has been reached. Stopping the training...")
+                self.gradients = [
+                    self.gradients[i][: epoch + 1, :, :]
+                    for i in range(len(self.gradients))
+                ]
+                break
+            epoch += 1
 
         # Return the trained perceptron
         return self
@@ -333,7 +458,7 @@ class MultiLayerPerceptron:
             # Forward
             y_s = self.forward(x_i)
             predictions.append(y_s[-1])
-        return predictions
+        return tensor(predictions)
 
     def plot_gradients(self, example: str):
         """
@@ -355,7 +480,7 @@ class MultiLayerPerceptron:
             for j in range(reshaped_layer.shape[1]):
                 fig.add_trace(
                     go.Scatter(
-                        x=np.arange(reshaped_layer.shape[0]),
+                        x=np.arange(reshaped_layer.shape[0] + 1),
                         y=reshaped_layer[:, j],
                         mode="lines",
                         name=f"Gradient {j + 1}",
@@ -363,12 +488,79 @@ class MultiLayerPerceptron:
                 )
             fig.update_layout(
                 title=f"Gradients for layer {i + 1}, example {example}",
-                xaxis_title="Interations",
+                xaxis_title="Iterations",
                 yaxis_title="Gradient",
             )
 
             # Save figure into a html
             fig.write_html(f"figures/fig_layer_{i+1}_({example}).html")
+
+    def plot_mean_gradients(self, example: str):
+        """
+        Plot the mean gradients per epoch for each layer.
+
+        Parameters:
+        -----------
+        example: str
+            The name of the example
+        """
+
+        assert self.gradients is not None
+
+        fig = go.Figure()
+        mean_gradients = []
+        for i, layer in enumerate(self.gradients):
+            # Get mean gradients per epoch
+            mean_gradients.append(np.array(layer.mean(axis=1).mean(axis=1)))
+        mean_gradients = np.array(mean_gradients).mean(axis=0)
+        fig.add_trace(
+            go.Scatter(
+                x=np.arange(len(mean_gradients) + 1),
+                y=mean_gradients,
+                mode="lines",
+                name=f"Mean Gradient, Layer {i + 1}",
+            )
+        )
+
+        fig.update_layout(
+            title=f"Mean Gradients, example {example}",
+            xaxis_title="Epochs",
+            yaxis_title="Gradient",
+        )
+
+        # Save figure into a html
+        fig.write_html(f"figures/mean_gradients_({example}).html")
+
+    def plot_energies(self, example: str):
+        """
+        It plots the energies for each layer.
+
+        Parameters:
+        -----------
+
+        example: str
+            The name of the example
+        """
+
+        assert self.energies is not None
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=np.arange(len(self.energies) + 1),
+                y=self.energies,
+                mode="lines",
+                name="Mean Instantaneous Energy of the Error per Epoch",
+            )
+        )
+        fig.update_layout(
+            title=f"Energies for example {example}",
+            xaxis_title="Epochs",
+            yaxis_title="Instantaneous Energy of the Error",
+        )
+
+        # Save figure into a html
+        fig.write_html(f"figures/energies_({example}).html")
 
     def plot_predictions(self, predictions: Tensor, real: Tensor, example: str) -> None:
         """
@@ -384,12 +576,12 @@ class MultiLayerPerceptron:
             The name of the example
         """
 
-        predictions = tensor(predictions)
-        real = real.reshape(predictions.shape)
+        real = real.flatten()
+        predictions = predictions.flatten()
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
-                x=np.arange(len(real)),
+                x=np.arange(len(real) + 1),
                 y=predictions,
                 mode="lines",
                 name="Predictions",
@@ -397,7 +589,7 @@ class MultiLayerPerceptron:
         )
         fig.add_trace(
             go.Scatter(
-                x=np.arange(len(real)),
+                x=np.arange(len(real) + 1),
                 y=real,
                 mode="lines",
                 name="Real",
