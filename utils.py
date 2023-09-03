@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import scipy.io as sio
 import torch
 from torch import Tensor
@@ -76,7 +77,7 @@ def read_txt(data_path: str, sep: str = ",") -> pd.DataFrame:
     return data
 
 
-def normalize_to_hypercube(data: pd.DataFrame):
+def normalize_to_hypercube(data: pd.DataFrame) -> pd.DataFrame:
     """It normalizes the data to the hypercube [0, 1].
 
     Parameters
@@ -94,3 +95,99 @@ def normalize_to_hypercube(data: pd.DataFrame):
     normalized_data = (data - data.min(axis=0)) / (data.max(axis=0) - data.min(axis=0))
 
     return normalized_data
+
+
+def train_test_val_split(data: pd.DataFrame) -> tuple[pd.DataFrame]:
+    """
+    It splits the data into train, test and validation sets using the uniform
+    distribution.
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        The data.
+
+    Returns
+    -------
+    train: pd.DataFrame
+        The training set.
+    """
+
+    # Set the seed for reproducibility
+    np.random.seed(42)
+
+    indexes = np.arange(len(data))
+    # Sample the indexes (np.random.choice uses the uniform distribution)
+    train = np.random.choice(indexes, size=round(0.6 * len(data)), replace=False)
+    test = np.random.choice(indexes, size=round(0.2 * len(data)), replace=False)
+    val = np.random.choice(indexes, size=round(0.2 * len(data)), replace=False)
+
+    # Sort the indexes
+    train.sort()
+    test.sort()
+    val.sort()
+    return data.iloc[train, :], data.iloc[test, :], data.iloc[val, :]
+
+
+def plot_train_test_val_split(
+    train_set: pd.DataFrame, test_set: pd.DataFrame, val_set: pd.DataFrame
+) -> None:
+    """It plots the train, test and validation sets in different colors.
+
+    Parameters
+    ----------
+    train_set: pd.DataFrame
+        The training set.
+    test_set: pd.DataFrame
+        The test set.
+    val_set: pd.DataFrame
+        The validation set.
+    """
+
+    fig = go.Figure()
+
+    # Reindex the dataframes so that they're easier to plot
+    max_index = np.max([train_set.index[-1], test_set.index[-1], val_set.index[-1]])
+    x_index = np.arange(0, max_index + 1)
+    reindex_train_set = train_set.reindex(x_index, fill_value=np.nan)
+    reindex_test_set = test_set.reindex(x_index, fill_value=np.nan)
+    reindex_val_set = val_set.reindex(x_index, fill_value=np.nan)
+
+    # Plot each column
+    for column in train_set.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=x_index,
+                y=reindex_train_set.loc[:, column],
+                mode="markers",
+                marker=dict(size=3, opacity=0.5),
+                name=f"{column}, Training Set",
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=x_index,
+                y=reindex_test_set.loc[:, column],
+                mode="markers",
+                marker=dict(size=3, opacity=0.5),
+                name=f"{column}, Test Set",
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=x_index,
+                y=reindex_val_set.loc[:, column],
+                mode="markers",
+                marker=dict(size=3, opacity=0.5),
+                name=f"{column}, Validation Set",
+            )
+        )
+
+    fig.update_layout(
+        title=f"Data split",
+    )
+
+    # Save figure into a html
+    fig.write_html(f"figures/train_test_val_split.html")
