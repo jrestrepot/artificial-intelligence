@@ -3,7 +3,7 @@
 import subprocess
 
 # Install the requirements
-# subprocess.run(["pip", "install", "-r", "requirements.txt"])
+subprocess.run(["pip", "install", "-r", "requirements.txt"])
 from pprint import pprint
 from typing import Any, Callable, Type
 
