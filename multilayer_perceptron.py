@@ -1,10 +1,4 @@
 """A multilayer perceptron forward pass implementation in PyTorch."""
-
-import subprocess
-
-# Install the requirements
-subprocess.run(["pip", "install", "-r", "requirements.txt"])
-from pprint import pprint
 from typing import Any, Callable, Type
 
 import numpy as np

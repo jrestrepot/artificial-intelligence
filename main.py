@@ -1,8 +1,12 @@
 """The file that runs the code."""
+import subprocess
+
+# Install the requirements
+subprocess.run(["pip", "install", "-r", "requirements.txt"])
+
 
 from pprint import pprint
 
-import numpy as np
 import torch
 
 from multilayer_perceptron import MultiLayerPerceptron
