@@ -111,59 +111,63 @@ class MultiLayerPerceptron:
             )
 
     def linear(
-        self, x: Type[Tensor], W: Type[Tensor], a: Type[Tensor], b: Type[Tensor]
+        self,
+        stimulli: Type[Tensor],
+        weight: Type[Tensor],
+        a: Type[Tensor],
+        b: Type[Tensor],
     ):
         """
         The lineal function of the perceptron.
 
         Parameters
         ----------
-        x: Type[Tensor]
+        stimulli: Type[Tensor]
             The input tensor.
-        W: Type[Tensor]
+        weight: Type[Tensor]
             The weight tensor.
         """
 
         # Check the dimensions of the tensors
         assert a.shape == b.shape
-        assert a.shape[0] == W.shape[0]
+        assert a.shape[0] == weight.shape[0]
 
-        return a * W.mm(x) + b
+        return a * weight.mm(stimulli) + b
 
-    def sigmoid(self, x: Type[Tensor], W: Type[Tensor]):
+    def sigmoid(self, stimulli: Type[Tensor], weight: Type[Tensor]):
         """
         The sigmoid function of the perceptron.
 
         Parameters
         ----------
-        x: Type[Tensor]
+        stimulli: Type[Tensor]
             The input tensor.
-        W: Type[Tensor]
+        weight: Type[Tensor]
             The weight tensor.
         """
 
         # Check the dimensions of the tensors
-        x = W.mm(x)
-        return torch.sigmoid(x)
+        local_induced_field = weight.mm(stimulli)
+        return torch.sigmoid(local_induced_field)
 
-    def tanh(self, x: Type[Tensor], W: Type[Tensor]):
+    def tanh(self, stimulli: Type[Tensor], weight: Type[Tensor]):
         """
         The tanh function of the perceptron.
 
         Parameters
         ----------
-        x: Type[Tensor]
+        stimulli: Type[Tensor]
             The input tensor.
-        W: Type[Tensor]
+        weight: Type[Tensor]
             The weight tensor.
         """
 
         # Check the dimensions of the tensors
-        x = W.mm(x)
+        local_induced_field = weight.mm(stimulli)
 
-        return torch.tanh(x)
+        return torch.tanh(local_induced_field)
 
-    def forward(self, x: Type[Tensor]):
+    def forward(self, x_input: Type[Tensor]):
         """
         The feedforward function of the perceptron. It uses the tanh function
         for the input layer, the sigmoid function for the hidden layer and the
@@ -171,7 +175,7 @@ class MultiLayerPerceptron:
 
         Parameters
         ----------
-        x: Type[Tensor]
+        x_input: Type[Tensor]
             The input tensor.
             The intercept tensor.
 
@@ -181,7 +185,7 @@ class MultiLayerPerceptron:
             The list of output tensors for each layer.
         """
 
-        y_s = [x]
+        y_s = [x_input]
         self.derivatives = []
 
         for i, activation_function in enumerate(self.activation_functions):
@@ -278,7 +282,7 @@ class MultiLayerPerceptron:
 
     def sequential_train(
         self,
-        x: Type[Tensor],
+        x_input: Type[Tensor],
         y_d: Type[Tensor],
         max_epochs: int = 50,
         tolerance: float = 1e-3,
@@ -287,7 +291,7 @@ class MultiLayerPerceptron:
 
         Parameters
         ----------
-        x: Type[Tensor]
+        x_input: Type[Tensor]
             The input tensor.
         y_d: Type[Tensor]
             The desired output tensor.
@@ -297,8 +301,8 @@ class MultiLayerPerceptron:
             The tolerance for the change in the error.
         """
 
-        n_columns = x.shape[1]
-        n_points = x.shape[0]
+        n_columns = x_input.shape[1]
+        n_points = x_input.shape[0]
         y_d_n_columns = y_d.shape[1]
 
         # Check dimensions
@@ -321,7 +325,7 @@ class MultiLayerPerceptron:
         while epoch < max_epochs:
             energies = []
             for i in range(n_points):
-                x_i = x[i, :][None, :].T
+                x_i = x_input[i, :][None, :].T
                 yd_i = y_d[i, :][None, :].T
                 # Forward
                 y_s = self.forward(x_i)
@@ -346,7 +350,7 @@ class MultiLayerPerceptron:
 
     def batch_train(
         self,
-        x: Type[Tensor],
+        x_input: Type[Tensor],
         y_d: Type[Tensor],
         max_epochs: int = 1000,
         tolerance: float = 1e-3,
@@ -355,7 +359,7 @@ class MultiLayerPerceptron:
 
         Parameters
         ----------
-        x: Type[Tensor]
+        x_input: Type[Tensor]
             The input tensor.
         y_d: Type[Tensor]
             The desired output tensor.
@@ -365,8 +369,8 @@ class MultiLayerPerceptron:
             The tolerance for the change in the error.
         """
 
-        n_columns = x.shape[1]
-        n_points = x.shape[0]
+        n_columns = x_input.shape[1]
+        n_points = x_input.shape[0]
         y_d_n_columns = y_d.shape[1]
 
         # Check dimensions
@@ -391,7 +395,7 @@ class MultiLayerPerceptron:
             stimuli = [None] * n_points
 
             for i in range(n_points):
-                x_i = x[i, :][None, :].T
+                x_i = x_input[i, :][None, :].T
                 yd_i = y_d[i, :][None, :].T
                 # Forward
                 y_s = self.forward(x_i)
@@ -423,13 +427,13 @@ class MultiLayerPerceptron:
         # Return the trained perceptron
         return self
 
-    def predict(self, x: Type[Tensor]):
+    def predict(self, x_input: Type[Tensor]) -> list[float]:
         """It predicts the output given the input. It assumes that the model is
         already trained.
 
         Parameters
         ----------
-        x: Type[Tensor]
+        x_input: Type[Tensor]
             The input tensor.
 
         Returns
@@ -443,12 +447,12 @@ class MultiLayerPerceptron:
 
         print("Predicting...")
 
-        n_columns = x.shape[1]
-        n_points = x.shape[0]
+        n_columns = x_input.shape[1]
+        n_points = x_input.shape[0]
         assert n_columns == self.input_size
         predictions = []
         for i in range(n_points):
-            x_i = x[i, :][None, :].T
+            x_i = x_input[i, :][None, :].T
             # Forward
             y_s = self.forward(x_i)
             predictions.append(y_s[-1])
@@ -503,7 +507,7 @@ class MultiLayerPerceptron:
 
         fig = go.Figure()
         mean_gradients = []
-        for i, layer in enumerate(self.gradients):
+        for layer in self.gradients:
             # Get mean gradients per epoch
             mean_gradients.append(np.array(layer.mean(axis=1).mean(axis=1)))
         mean_gradients = np.array(mean_gradients).mean(axis=0)
@@ -512,7 +516,7 @@ class MultiLayerPerceptron:
                 x=np.arange(len(mean_gradients) + 1),
                 y=mean_gradients,
                 mode="lines",
-                name=f"Mean Gradient, Layer {i + 1}",
+                name="Mean Gradient",
             )
         )
 
@@ -590,7 +594,7 @@ class MultiLayerPerceptron:
             )
         )
         fig.update_layout(
-            title=f"Real vs Predicted",
+            title="Real vs Predicted",
         )
 
         # Save figure into a html
