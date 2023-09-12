@@ -4,7 +4,7 @@ from typing import Any, Callable, Type
 import numpy as np
 import plotly.graph_objects as go
 import torch
-from torch import Tensor, tensor
+from torch import Tensor
 
 
 class MultiLayerPerceptron:
@@ -44,6 +44,7 @@ class MultiLayerPerceptron:
         self.gradients: list[Tensor] | None = None
         self.energies: list[float] = []
         self.weights: list[Tensor] | None = None
+        self.biases: list[Tensor] | None = None
         self.eta = eta
         self.derivatives = []
         self._init_activation_functions_(activation_functions)
@@ -74,19 +75,25 @@ class MultiLayerPerceptron:
         """
 
         self.gradients = []
-        self.gradients.append(torch.zeros((n_epochs, n_points, self.input_size)))
-        for hidden_layer in self.hidden_layers:
-            self.gradients.append(torch.zeros((n_epochs, n_points, hidden_layer)))
-        self.gradients.append(torch.zeros((n_epochs, n_points, self.output_size)))
+        sizes = self.hidden_layers + [self.output_size]
+        for size in sizes:
+            self.gradients.append(torch.zeros((n_epochs, n_points, size)))
 
     def _init_weights_(self):
         """It initializes the weights."""
 
         self.weights = []
-        self.weights.append(torch.rand(self.input_size, self.input_size))
-        for hidden_size in self.hidden_layers:
-            self.weights.append(torch.rand(hidden_size, self.weights[-1].shape[0]))
-        self.weights.append(torch.rand(self.output_size, hidden_size))
+        sizes = [self.input_size] + self.hidden_layers + [self.output_size]
+        for prev_size, size in zip(sizes[:-1], sizes[1:]):
+            self.weights.append(torch.rand(size, prev_size))
+
+    def _init_biases_(self):
+        """It initializes the biases."""
+
+        self.biases = []
+        sizes = self.hidden_layers + [self.output_size]
+        for size in sizes:
+            self.biases.append(torch.rand(size, 1))
 
     def check_input(self):
         """
@@ -101,7 +108,7 @@ class MultiLayerPerceptron:
             raise TypeError("The output size must be an integer.")
         if not isinstance(self.activation_functions, list):
             raise TypeError("The activation functions must be a list.")
-        if len(self.hidden_layers) + 2 != len(self.activation_functions):
+        if len(self.hidden_layers) + 1 != len(self.activation_functions):
             raise ValueError(
                 "The number of activation functions must be equal to the number of layers."
             )
@@ -114,6 +121,7 @@ class MultiLayerPerceptron:
         self,
         stimulli: Type[Tensor],
         weight: Type[Tensor],
+        bias: Type[Tensor],
         a: Type[Tensor],
         b: Type[Tensor],
     ):
@@ -126,15 +134,43 @@ class MultiLayerPerceptron:
             The input tensor.
         weight: Type[Tensor]
             The weight tensor.
+        bias: Type[Tensor]
+            The bias tensor.
+        a: Type[Tensor]
+            The slope tensor.
+        b: Type[Tensor]
+            The intercept tensor.
         """
 
         # Check the dimensions of the tensors
         assert a.shape == b.shape
         assert a.shape[0] == weight.shape[0]
 
-        return a * weight.mm(stimulli) + b
+        local_induced_field = weight.mm(stimulli)
+        assert local_induced_field.shape == b.shape
 
-    def sigmoid(self, stimulli: Type[Tensor], weight: Type[Tensor]):
+        return a * local_induced_field + bias + b
+
+    def relu(self, stimulli: Type[Tensor], weight: Type[Tensor], bias: Type[Tensor]):
+        """
+        The relu function of the perceptron.
+
+        Parameters
+        ----------
+        stimulli: Type[Tensor]
+            The input tensor.
+        weight: Type[Tensor]
+            The weight tensor.
+        bias: Type[Tensor]
+            The bias tensor.
+        """
+
+        local_induced_field = weight.mm(stimulli)
+        assert local_induced_field.shape == bias.shape
+
+        return torch.relu(local_induced_field + bias)
+
+    def sigmoid(self, stimulli: Type[Tensor], weight: Type[Tensor], bias: Type[Tensor]):
         """
         The sigmoid function of the perceptron.
 
@@ -144,13 +180,16 @@ class MultiLayerPerceptron:
             The input tensor.
         weight: Type[Tensor]
             The weight tensor.
+        bias: Type[Tensor]
+            The bias tensor.
         """
 
-        # Check the dimensions of the tensors
         local_induced_field = weight.mm(stimulli)
-        return torch.sigmoid(local_induced_field)
+        assert local_induced_field.shape == bias.shape
 
-    def tanh(self, stimulli: Type[Tensor], weight: Type[Tensor]):
+        return torch.sigmoid(local_induced_field + bias)
+
+    def tanh(self, stimulli: Type[Tensor], weight: Type[Tensor], bias: Type[Tensor]):
         """
         The tanh function of the perceptron.
 
@@ -160,18 +199,63 @@ class MultiLayerPerceptron:
             The input tensor.
         weight: Type[Tensor]
             The weight tensor.
+        bias: Type[Tensor]
+            The bias tensor.
         """
 
-        # Check the dimensions of the tensors
         local_induced_field = weight.mm(stimulli)
+        assert local_induced_field.shape == bias.shape
 
-        return torch.tanh(local_induced_field)
+        return torch.tanh(local_induced_field + bias)
+
+    def derivative(self, activation_function: Type[Callable]):
+        """
+        The derivative of the activation function.
+
+        Parameters
+        ----------
+        activation_function: Type[Callable]
+            The activation function.
+
+        Returns
+        -------
+        derivative: Type[Callable]
+            The derivative of the activation function.
+        """
+
+        match activation_function.__name__:
+            case self.sigmoid.__name__:
+                return lambda x, W, bias: activation_function(self, x, W, bias) * (
+                    1 - activation_function(self, x, W, bias)
+                )
+            case self.tanh.__name__:
+                return lambda x, W, bias: 1 - activation_function(self, x, W, bias) ** 2
+            case self.linear.__name__:
+                return lambda x, W, bias, a, b: a
+            case self.relu.__name__:
+                return lambda x, W, bias: torch.where(
+                    activation_function(self, x, W, bias) > 0,
+                    torch.ones_like(activation_function(self, x, W, bias)),
+                    torch.zeros_like(activation_function(self, x, W, bias)),
+                )
+            case _:
+                raise ValueError("The activation function is not valid.")
+
+    def energy(self, error: Type[Tensor]):
+        """
+        The energy function.
+
+        Parameters
+        ----------
+        error: Type[Tensor]
+            The error tensor.
+        """
+
+        return 0.5 * (torch.square(error)).sum()
 
     def forward(self, x_input: Type[Tensor]):
         """
-        The feedforward function of the perceptron. It uses the tanh function
-        for the input layer, the sigmoid function for the hidden layer and the
-        lineal function for the output layer.
+        The feedforward function of the perceptron.
 
         Parameters
         ----------
@@ -191,54 +275,19 @@ class MultiLayerPerceptron:
         for i, activation_function in enumerate(self.activation_functions):
             y_s.append(
                 activation_function(
-                    self, y_s[i], self.weights[i], **self.activation_kwargs[i]
+                    self,
+                    y_s[i],
+                    self.weights[i],
+                    self.biases[i],
+                    **self.activation_kwargs[i],
                 )
             )
             self.derivatives.append(
                 self.derivative(activation_function)(
-                    y_s[i], self.weights[i], **self.activation_kwargs[i]
+                    y_s[i], self.weights[i], self.biases[i], **self.activation_kwargs[i]
                 )
             )
         return y_s
-
-    def derivative(self, activation_function: Type[Callable]):
-        """
-        The derivative of the activation function.
-
-        Parameters
-        ----------
-        activation_function: Type[Callable]
-            The activation function.
-
-        Returns
-        -------
-        derivative: Type[Callable]
-            The derivative of the activation function.
-        """
-
-        match activation_function.__name__:
-            case self.sigmoid.__name__:
-                return lambda x, W: activation_function(self, x, W) * (
-                    1 - activation_function(self, x, W)
-                )
-            case self.tanh.__name__:
-                return lambda x, W: 1 - activation_function(self, x, W) ** 2
-            case self.linear.__name__:
-                return lambda x, W, a, b: a
-            case _:
-                raise ValueError("The activation function is not valid.")
-
-    def energy(self, error: Type[Tensor]):
-        """
-        The energy function.
-
-        Parameters
-        ----------
-        error: Type[Tensor]
-            The error tensor.
-        """
-
-        return 0.5 * (torch.square(error)).sum()
 
     def backpropagation(
         self, error: Type[Tensor], y_s: Type[Tensor], point: int, epoch: int
@@ -262,9 +311,14 @@ class MultiLayerPerceptron:
         current_index = len(self.activation_functions) - 1
         stimuli = y_s[current_index]
         weight = self.weights[current_index]
+        bias = self.biases[current_index]
         local_gradient = error * self.derivatives[current_index]
         self.gradients[current_index][epoch, point, :] = local_gradient.T
+
+        # Update the weights and biases
         self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
+        self.biases[current_index] = bias + self.eta * local_gradient
+
         # Compute for the rest of the layers
         current_index -= 1
         while current_index >= 0:
@@ -272,12 +326,15 @@ class MultiLayerPerceptron:
             past_weight = weight
             stimuli = y_s[current_index]
             weight = self.weights[current_index]
+            bias = self.biases[current_index]
             local_gradient = self.derivatives[current_index] * past_weight.T.mm(
                 past_local_gradient
             )
             self.gradients[current_index][epoch, point, :] = local_gradient.T
 
+            # Update the weights and biases
             self.weights[current_index] = weight + self.eta * local_gradient * stimuli.T
+            self.biases[current_index] = bias + self.eta * local_gradient
             current_index -= 1
 
     def sequential_train(
@@ -306,7 +363,6 @@ class MultiLayerPerceptron:
         y_d_n_columns = y_d.shape[1]
 
         # Check dimensions
-        assert n_columns == self.input_size
         assert y_d_n_columns == self.output_size
 
         print("Training the perceptron...")
@@ -318,6 +374,9 @@ class MultiLayerPerceptron:
         # Initialize the weights
         if self.weights is None:
             self._init_weights_()
+        # Initialize the biases
+        if self.biases is None:
+            self._init_biases_()
 
         # Train the perceptron
         epoch = 0
@@ -330,7 +389,7 @@ class MultiLayerPerceptron:
                 # Forward
                 y_s = self.forward(x_i)
                 # Backward
-                error = (yd_i - y_s[-1]).sum()
+                error = yd_i - y_s[-1]
                 energies.append(self.energy(error))
                 self.backpropagation(error, y_s, i, epoch)
             # Stop iterating if the error is not changing
@@ -450,13 +509,13 @@ class MultiLayerPerceptron:
         n_columns = x_input.shape[1]
         n_points = x_input.shape[0]
         assert n_columns == self.input_size
-        predictions = []
+        predictions = torch.empty((n_points, self.output_size))
         for i in range(n_points):
             x_i = x_input[i, :][None, :].T
             # Forward
             y_s = self.forward(x_i)
-            predictions.append(y_s[-1])
-        return tensor(predictions)
+            predictions[i] = y_s[-1].squeeze()
+        return predictions
 
     def plot_gradients(self, example: str):
         """
@@ -470,6 +529,8 @@ class MultiLayerPerceptron:
         """
 
         assert self.gradients is not None
+
+        print("Plotting the gradients...")
 
         for i, layer in enumerate(self.gradients):
             fig = go.Figure()
@@ -504,6 +565,8 @@ class MultiLayerPerceptron:
         """
 
         assert self.gradients is not None
+
+        print("Plotting the mean gradients...")
 
         fig = go.Figure()
         mean_gradients = []
@@ -542,6 +605,8 @@ class MultiLayerPerceptron:
 
         assert self.energies is not None
 
+        print("Plotting the energies...")
+
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
@@ -574,25 +639,27 @@ class MultiLayerPerceptron:
             The name of the example
         """
 
-        real = real.flatten()
-        predictions = predictions.flatten()
+        print("Plotting the predictions...")
+
+        num_columns = predictions.shape[1]
         fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(real) + 1),
-                y=predictions,
-                mode="lines",
-                name="Predictions",
+        for col in range(num_columns):
+            fig.add_trace(
+                go.Scatter(
+                    x=np.arange(len(real) + 1),
+                    y=predictions[:, col],
+                    mode="lines",
+                    name=f"Predictions_feature_{col}",
+                )
             )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(real) + 1),
-                y=real,
-                mode="lines",
-                name="Real",
+            fig.add_trace(
+                go.Scatter(
+                    x=np.arange(len(real) + 1),
+                    y=real[:, col],
+                    mode="lines",
+                    name=f"Real_feature_{col}",
+                )
             )
-        )
         fig.update_layout(
             title="Real vs Predicted",
         )
