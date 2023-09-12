@@ -56,8 +56,8 @@ if __name__ == "__main__":
         for num_neurons in range(1, 6):
             for lerning_rate in [0.3, 0.5, 0.9]:
                 hidden_layers = [num_neurons] * num_hidden_layers
-                activation_functions = ["sigmoid"] * (num_hidden_layers + 2)
-                activation_kwargs = [{}] * (num_hidden_layers + 2)
+                activation_functions = ["sigmoid"] * (num_hidden_layers + 1)
+                activation_kwargs = [{}] * (num_hidden_layers + 1)
                 multilayer = MultiLayerPerceptron(
                     2,
                     hidden_layers,
@@ -68,7 +68,7 @@ if __name__ == "__main__":
                 )
 
                 # Train the perceptron
-                multilayer.sequential_train(x_train, y_train)
+                multilayer.sequential_train(x_train, y_train, tolerance=1e-5)
                 # Test on the test set
                 test_predictions = multilayer.predict(x_test)
                 test_predictions = torch.reshape(test_predictions, (-1, 1))
