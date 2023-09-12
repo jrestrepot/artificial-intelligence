@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 from torch import Tensor
+from tqdm import tqdm
 
 
 class MultiLayerPerceptron:
@@ -358,7 +359,6 @@ class MultiLayerPerceptron:
             The tolerance for the change in the error.
         """
 
-        n_columns = x_input.shape[1]
         n_points = x_input.shape[0]
         y_d_n_columns = y_d.shape[1]
 
@@ -379,9 +379,7 @@ class MultiLayerPerceptron:
             self._init_biases_()
 
         # Train the perceptron
-        epoch = 0
-        # past_mean_energy = np.inf
-        while epoch < max_epochs:
+        for epoch in tqdm(range(max_epochs)):
             energies = []
             for i in range(n_points):
                 x_i = x_input[i, :][None, :].T
@@ -402,7 +400,6 @@ class MultiLayerPerceptron:
                     for i in range(len(self.gradients))
                 ]
                 break
-            epoch += 1
 
         # Return the trained perceptron
         return self
@@ -446,11 +443,14 @@ class MultiLayerPerceptron:
         if self.weights is None:
             self._init_weights_()
 
+        # Initialize the biases
+        if self.biases is None:
+            self._init_biases_()
+
         # Train the perceptron
-        epoch = 0
-        while epoch < max_epochs:
+        for epoch in tqdm(range(max_epochs)):
             energies = np.zeros((n_points, 1))
-            errors = np.zeros((n_points, 1))
+            errors = np.zeros((n_points, self.output_size, 1))
             stimuli = [None] * n_points
 
             for i in range(n_points):
@@ -459,20 +459,19 @@ class MultiLayerPerceptron:
                 # Forward
                 y_s = self.forward(x_i)
                 stimuli[i] = y_s
-                error = (yd_i - y_s[-1]).sum()
+                error = yd_i - y_s[-1]
                 errors[i] = error
                 energies[i] = self.energy(error)
-
-            max_error_index = np.argmax(errors)
+            max_error_index = np.argmax(np.abs(errors).sum(axis=1))
             if not isinstance(max_error_index, np.int64):
                 max_error_index = max_error_index[0]
             # Get stimuli for the max error
             stimuli_max_error = stimuli[max_error_index]
             mean_energy = np.mean(energies)
-            mean_error = np.mean(errors)
+            max_error = torch.tensor(np.mean(errors, axis=0), dtype=torch.float32)
             self.energies.append(mean_energy)
             # Backward
-            self.backpropagation(mean_error, stimuli_max_error, i, epoch)
+            self.backpropagation(max_error, stimuli_max_error, i, epoch)
             # Stop iterating if the error is not changing
             if mean_energy < tolerance:
                 print("The error tolerance has been reached. Stopping the training...")
@@ -481,7 +480,6 @@ class MultiLayerPerceptron:
                     for i in range(len(self.gradients))
                 ]
                 break
-            epoch += 1
 
         # Return the trained perceptron
         return self
