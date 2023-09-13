@@ -1,6 +1,8 @@
-torch
 numpy
 pandas
-scipy
 plotly
+scikit-learn
+scipy
+tensorflow
+torch
 tqdm
