@@ -1,4 +1,4 @@
-"""The file that runs the code."""
+"""The file that runs the supervised MLP code."""
 import subprocess
 
 # Install the requirements

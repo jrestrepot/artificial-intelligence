@@ -1,5 +1,8 @@
 """It contains the functions to read data files."""
 
+import struct as st
+
+import idx2numpy
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -127,6 +130,52 @@ def train_test_val_split(data: pd.DataFrame) -> tuple[pd.DataFrame]:
     test.sort()
     val.sort()
     return data.iloc[train, :], data.iloc[test, :], data.iloc[val, :]
+
+
+def process_pixels(data: tuple[np.ndarray, np.ndarray]) -> pd.DataFrame:
+    """Converts a tuple of 2D arrays and labels into a dataframe.
+
+    Parameters
+    ----------
+    data: tuple[np.ndarray, np.ndarray]
+        The data.
+
+    Returns
+    -------
+    data: pd.DataFrame
+        The transformed data.
+
+    """
+
+    labels = [str(label) for label in data[1]]
+    labels = pd.DataFrame(labels)
+    pixels = data[0]
+    # Flatten the pixels
+    pixels = pixels.reshape(pixels.shape[0], -1)
+    # Add the pixels and labels to a dataframe
+    data = pd.DataFrame(pixels)
+    return pd.concat([data, labels], axis=1)
+
+
+def read_idx_file(filenames: str) -> np.ndarray:
+    """It reads a idx file and returns a numpy array.
+
+    Parameters
+    ----------
+    filenames: dict
+        The files path.
+
+    Returns
+    -------
+    data: np.ndarray
+        The data.
+    """
+    # Use idx2numpy to read the IDX file into a NumPy array
+    images = filenames["images"]
+    labels = filenames["labels"]
+    mnist_data = idx2numpy.convert_from_file(images)
+    mnist_labels = idx2numpy.convert_from_file(labels)
+    return mnist_data, mnist_labels
 
 
 def plot_train_test_val_split(

@@ -1,11 +1,11 @@
-"""The file that runs the code."""
+"""The file that runs the Autoencoder code."""
 import subprocess
 
 # Install the requirements
 subprocess.run(["pip", "install", "-r", "requirements.txt"])
 import torch
-
 from multilayer_perceptron import MultiLayerPerceptron
+
 from utils import (
     format_input,
     normalize_to_hypercube,
