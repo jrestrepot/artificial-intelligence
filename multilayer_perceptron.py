@@ -484,7 +484,9 @@ class MultiLayerPerceptron:
         # Return the trained perceptron
         return self
 
-    def predict(self, x_input: Type[Tensor]) -> list[float]:
+    def predict(
+        self, x_input: Type[Tensor], return_encoder: bool = False
+    ) -> list[float]:
         """It predicts the output given the input. It assumes that the model is
         already trained.
 
@@ -497,6 +499,8 @@ class MultiLayerPerceptron:
         -------
         y: Type[Tensor]
             The output tensor.
+        return_encoder: bool
+            Whether to return the encoder output or not.
         """
 
         if self.gradients is None:
@@ -508,11 +512,15 @@ class MultiLayerPerceptron:
         n_points = x_input.shape[0]
         assert n_columns == self.input_size
         predictions = torch.empty((n_points, self.output_size))
+        encoder = torch.empty((n_points, self.hidden_layers[-1]))
         for i in range(n_points):
             x_i = x_input[i, :][None, :].T
             # Forward
             y_s = self.forward(x_i)
             predictions[i] = y_s[-1].squeeze()
+            encoder[i] = y_s[-2].squeeze()
+        if return_encoder:
+            return encoder, predictions
         return predictions
 
     def plot_gradients(self, example: str):
@@ -577,14 +585,14 @@ class MultiLayerPerceptron:
                 x=np.arange(len(mean_gradients) + 1),
                 y=mean_gradients,
                 mode="lines",
-                name="Mean Gradient",
             )
         )
 
         fig.update_layout(
             title=f"Mean Gradients, example {example}",
             xaxis_title="Epochs",
-            yaxis_title="Gradient",
+            yaxis_title="Mean Gradient",
+            showlegend=False,
         )
 
         # Save figure into a html
@@ -611,13 +619,13 @@ class MultiLayerPerceptron:
                 x=np.arange(len(self.energies) + 1),
                 y=self.energies,
                 mode="lines",
-                name="Mean Instantaneous Energy of the Error per Epoch",
             )
         )
         fig.update_layout(
-            title=f"Energies for example {example}",
+            title=f"Mean energies across epochs, example {example}",
             xaxis_title="Epochs",
-            yaxis_title="Instantaneous Energy of the Error",
+            yaxis_title="Mean Instantaneous Energy of the Error",
+            showlegend=False,
         )
 
         # Save figure into a html
