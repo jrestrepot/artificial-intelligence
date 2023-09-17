@@ -4,8 +4,8 @@ import subprocess
 # Install the requirements
 subprocess.run(["pip", "install", "-r", "requirements.txt"])
 import torch
-from multilayer_perceptron import MultiLayerPerceptron
 
+from multilayer_perceptron import MultiLayerPerceptron
 from utils import (
     format_input,
     normalize_to_hypercube,
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     plot_train_test_val_split(train, test, val)
 
     # Train the autoencoder
-    hidden_layers = [4]
+    hidden_layers = [2]
     activation_functions = ["tanh", "tanh"]
     activation_kwargs = [{}, {}]
     multilayer = MultiLayerPerceptron(
@@ -64,62 +64,55 @@ if __name__ == "__main__":
     )
 
     multilayer.sequential_train(x_train, y_train, max_epochs=50, tolerance=1e-10)
-    multilayer.plot_mean_gradients("encoder_expand")
-    multilayer.plot_energies("encoder_expand")
+    multilayer.plot_mean_gradients("encoder")
+    multilayer.plot_energies("encoder")
     predictions = multilayer.predict(x_test)
-    multilayer.plot_predictions(predictions, y_test, "encoder_expand_test")
-    predictions_val = multilayer.predict(x_val)
-    multilayer.plot_predictions(predictions_val, y_val, "encoder_expand_val")
+    multilayer.plot_predictions(predictions, y_test, "encoder_test")
+    # Get the encoder and predictions for the validation set
+    encoder, predictions_val = multilayer.predict(x_val, return_encoder=True)
+    multilayer.plot_predictions(predictions_val, y_val, "encoder_val")
 
-    # Train the autoencoder from PyTorch
+    # Train the MLP from PyTorch
     from torch import nn
     from torch.utils.data import DataLoader, TensorDataset
 
-    print("Training Pytorch's autoencoder for comparison...")
+    print("Training Pytorch's MLP...")
 
     # Define the model
-    class Autoencoder(nn.Module):
+    class Decoder(nn.Module):
         """Autoencoder model."""
 
-        def __init__(self, input_size, hidden_size):
+        def __init__(self, input_size, output_size):
             """Initialize the model."""
-            super(Autoencoder, self).__init__()
-            self.encoder = nn.Sequential(
-                nn.Linear(input_size, hidden_size),
-                nn.Tanh(),
-            )
+            super(Decoder, self).__init__()
             self.decoder = nn.Sequential(
-                nn.Linear(hidden_size, input_size),
+                nn.Linear(input_size, output_size),
                 nn.Tanh(),
             )
 
         def forward(self, x):
             """Forward pass."""
-            x = self.encoder(x)
             x = self.decoder(x)
             return x
 
     # Define the model
-    model = Autoencoder(3, 4)
+    model = Decoder(2, 3)
     # Define the loss function
     criterion = nn.MSELoss()
     # Define the optimizer
     optimizer = torch.optim.SGD(model.parameters(), lr=0.3)
-    # Define the data loaders
-    train_dataset = TensorDataset(torch.Tensor(x_train), torch.Tensor(y_train))
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
-    val_dataset = TensorDataset(torch.Tensor(x_val), torch.Tensor(y_val))
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+    # Define the data loaders (pass the encoder as input and original data as output)
+    train_dataset = TensorDataset(torch.Tensor(encoder), torch.Tensor(y_val))
+    train_loader = DataLoader(train_dataset, batch_size=len(y_val), shuffle=True)
+
     # Train the model
-    for epoch in range(50):
+    for epoch in range(100):
         for x, y in train_loader:
             model.forward(x)
             loss = criterion(model.forward(x), y)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-    # Test the model
-    predictions = predictions = torch.empty((len(x_val), len(x_val[0])))
-    for i, (x, y) in enumerate(val_loader):
-        predictions[i] = model.forward(x)
-    multilayer.plot_predictions(y_val, predictions.detach(), "Pytorch")
+    # Test the model with the validation set
+    predictions = model.forward(torch.Tensor(encoder))
+    multilayer.plot_predictions(y_val, predictions.detach(), "Pytorch_red")
