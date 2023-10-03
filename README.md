@@ -34,3 +34,6 @@ algorithms. To run this, simply use "python Unsupervised/main.py"
 ## figures
 The figures folder consists of .html and .png files, which are visualizations of the 
 results for the models in this repository. The file names are very self-explanatory.
+
+# SET UP
+To set up the virtual environment, simple run the .sh file with the command: ".\setup.sh"
